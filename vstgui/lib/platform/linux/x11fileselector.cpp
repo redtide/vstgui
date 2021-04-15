@@ -3,6 +3,7 @@
 // distribution and at http://github.com/steinbergmedia/vstgui/LICENSE
 
 #include "../../cfileselector.h"
+#include <gio/gio.h>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <string>
@@ -16,15 +17,22 @@ extern "C" { extern char **environ; }
 namespace VSTGUI {
 namespace X11 {
 
-static constexpr auto kdialogpath = "/usr/bin/kdialog";
-static constexpr auto zenitypath = "/usr/bin/zenity";
-
 //------------------------------------------------------------------------
 struct FileSelector : CNewFileSelector
 {
 	FileSelector (CFrame* parent, Style style) : CNewFileSelector (parent), style (style)
 	{
-		identifiyExDialogType ();
+		std::vector<std::string> options = {"kdialog", "zenity"};
+		for (std::string option: options) {
+			exDialogType = (option == options.at(0)) ? ExDialogType::kdialog : ExDialogType::zenity;
+			auto dlgPath = g_find_program_in_path (option.c_str());
+			if (dlgPath) {
+				exDialogPath = dlgPath;
+				break;
+			}
+		}
+		if (exDialogPath.empty())
+			exDialogType = ExDialogType::none;
 	}
 
 	~FileSelector ()
@@ -86,19 +94,11 @@ private:
 		zenity
 	};
 
-	void identifiyExDialogType ()
-	{
-		if (access (zenitypath, X_OK) != -1)
-			exDialogType = ExDialogType::zenity;
-		if (access (kdialogpath, X_OK) != -1)
-			exDialogType = ExDialogType::kdialog;
-	}
-
 	bool runKDialog ()
 	{
 		std::vector<std::string> args;
 		args.reserve (16);
-		args.push_back (kdialogpath);
+		args.push_back (exDialogPath);
 		if (style == Style::kSelectFile) {
 			args.push_back ("--getopenfilename");
 			args.push_back ("--separate-output");
@@ -137,7 +137,7 @@ private:
 	{
 		std::vector<std::string> args;
 		args.reserve (16);
-		args.push_back (zenitypath);
+		args.push_back (exDialogPath);
 		args.push_back ("--file-selection");
 		if (style == Style::kSelectDirectory)
 			args.push_back ("--directory");
@@ -267,6 +267,7 @@ private:
 	Style style;
 	SharedPointer<CBaseObject> delegate;
 	ExDialogType exDialogType{ExDialogType::none};
+	std::string exDialogPath{};
 	pid_t spawnPid = -1;
 	int readerFd = -1;
 };
